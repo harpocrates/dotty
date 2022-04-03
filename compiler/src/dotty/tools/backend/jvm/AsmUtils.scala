@@ -8,6 +8,7 @@ import scala.tools.asm.tree.{AbstractInsnNode}
 import java.io.PrintWriter
 import scala.tools.asm.util.{TraceClassVisitor, TraceMethodVisitor, Textifier}
 import scala.tools.asm.ClassReader
+import scala.tools.asm.tree.{ClassNode, MethodNode}
 
 object AsmUtils {
 
@@ -33,7 +34,7 @@ object AsmUtils {
   inline val traceSerializedClassEnabled = false
   inline val traceSerializedClassPattern = ""
 
-  def traceMethod(mnode: MethodNode1): Unit = {
+  def traceMethod(mnode: MethodNode): Unit = {
     println(s"Bytecode for method ${mnode.name}")
     val p = new Textifier
     val tracer = new TraceMethodVisitor(p)
@@ -43,7 +44,7 @@ object AsmUtils {
     w.flush()
   }
 
-  def traceClass(cnode: ClassNode1): Unit = {
+  def traceClass(cnode: ClassNode): Unit = {
     println(s"Bytecode for class ${cnode.name}")
     val w = new PrintWriter(System.out)
     cnode.accept(new TraceClassVisitor(w))
@@ -52,8 +53,8 @@ object AsmUtils {
 
   def traceClass(bytes: Array[Byte]): Unit = traceClass(readClass(bytes))
 
-  def readClass(bytes: Array[Byte]): ClassNode1 = {
-    val node = new ClassNode1()
+  def readClass(bytes: Array[Byte]): ClassNode = {
+    val node = new ClassNode()
     new ClassReader(bytes).accept(node, 0)
     node
   }
