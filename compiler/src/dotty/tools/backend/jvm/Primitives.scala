@@ -75,7 +75,7 @@ object Primitives {
   }
 
   /** This class represents an arithmetic operation. */
-  class ArithmeticOp {
+  sealed abstract class ArithmeticOp {
 
     /** Returns a string representation of this operation. */
     override def toString(): String = this match {
@@ -85,7 +85,6 @@ object Primitives {
       case DIV => "DIV"
       case REM => "REM"
       case NOT => "NOT"
-      case _   => throw new RuntimeException("ArithmeticOp unknown case")
     }
   }
 

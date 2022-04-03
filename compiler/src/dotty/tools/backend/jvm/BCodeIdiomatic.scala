@@ -163,9 +163,6 @@ trait BCodeIdiomatic {
           } else {
             abort(s"Impossible to negate an $kind")
           }
-
-        case _ =>
-          abort(s"Unknown arithmetic primitive $op")
       }
 
     } // end of method genPrimitiveArithmetic()
