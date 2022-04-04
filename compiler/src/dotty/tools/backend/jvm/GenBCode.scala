@@ -513,7 +513,7 @@ class GenBCodePipeline(val int: DottyBackendInterface, val primitives: DottyPrim
     private def addToQ3(item: Item2) = {
 
       def getByteArray(cn: asm.tree.ClassNode): Array[Byte] = {
-        val cw = new CClassWriter(extraProc)
+        val cw = new CClassWriter(asm.ClassWriter.COMPUTE_MAXS | asm.ClassWriter.COMPUTE_FRAMES)
         cn.accept(cw)
         cw.toByteArray
       }
