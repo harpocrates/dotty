@@ -76,53 +76,9 @@ trait BCodeIdiomatic {
   val EMPTY_BTYPE_ARRAY    = Array.empty[BType]
 
   /* can-multi-thread */
-  final def mkArrayB(xs: List[BType]): Array[BType] = {
-    if (xs.isEmpty) { return EMPTY_BTYPE_ARRAY }
-    val a = new Array[BType](xs.size); xs.copyToArray(a); a
-  }
-  /* can-multi-thread */
   final def mkArrayS(xs: List[String]): Array[String] = {
     if (xs.isEmpty) { return EMPTY_STRING_ARRAY }
     val a = new Array[String](xs.size); xs.copyToArray(a); a
-  }
-  /* can-multi-thread */
-  final def mkArrayL(xs: List[asm.Label]): Array[asm.Label] = {
-    if (xs.isEmpty) { return EMPTY_LABEL_ARRAY }
-    val a = new Array[asm.Label](xs.size); xs.copyToArray(a); a
-  }
-
-  /*
-   * can-multi-thread
-   */
-  final def mkArrayReverse(xs: List[String]): Array[String] = {
-    val len = xs.size
-    if (len == 0) { return EMPTY_STRING_ARRAY }
-    val a = new Array[String](len)
-    var i = len - 1
-    var rest = xs
-    while (!rest.isEmpty) {
-      a(i) = rest.head
-      rest = rest.tail
-      i -= 1
-    }
-    a
-  }
-
-  /*
-   * can-multi-thread
-   */
-  final def mkArrayReverse(xs: List[Int]): Array[Int] = {
-    val len = xs.size
-    if (len == 0) { return EMPTY_INT_ARRAY }
-    val a = new Array[Int](len)
-    var i = len - 1
-    var rest = xs
-    while (!rest.isEmpty) {
-      a(i) = rest.head
-      rest = rest.tail
-      i -= 1
-    }
-    a
   }
 
   /* Just a namespace for utilities that encapsulate MethodVisitor idioms.
@@ -132,16 +88,16 @@ trait BCodeIdiomatic {
    */
   abstract class JCodeMethodN {
 
-    def jmethod: asm.tree.MethodNode
+    def jmethod: asm.MethodVisitor
 
     import asm.Opcodes;
 
-    final def emit(opc: Int): Unit = { jmethod.visitInsn(opc) }
+    private final def emit(opc: Int): Unit = { jmethod.visitInsn(opc) }
 
     /*
      * can-multi-thread
      */
-    final def genPrimitiveArithmetic(op: ArithmeticOp, kind: BType): Unit = {
+    final def genPrimitiveArithmetic(op: ArithmeticOp, kind: PrimitiveBType): Unit = {
 
       import Primitives.{ ADD, SUB, MUL, DIV, REM, NOT }
 
@@ -155,8 +111,8 @@ trait BCodeIdiomatic {
 
         case NOT =>
           if (kind.isIntSizedType) {
-            emit(Opcodes.ICONST_M1)
-            emit(Opcodes.IXOR)
+            jmethod.visitInsn(Opcodes.ICONST_M1)
+            jmethod.visitInsn(Opcodes.IXOR)
           } else if (kind == LONG) {
             jmethod.visitLdcInsn(java.lang.Long.valueOf(-1))
             jmethod.visitInsn(Opcodes.LXOR)
@@ -170,27 +126,27 @@ trait BCodeIdiomatic {
     /*
      * can-multi-thread
      */
-    final def genPrimitiveLogical(op: /* LogicalOp */ Int, kind: BType): Unit = {
+    final def genPrimitiveLogical(op: /* LogicalOp */ Int, kind: PrimitiveBType): Unit = {
 
       import ScalaPrimitivesOps.{ AND, OR, XOR }
 
       ((op, kind): @unchecked) match {
-        case (AND, LONG) => emit(Opcodes.LAND)
-        case (AND, INT)  => emit(Opcodes.IAND)
+        case (AND, LONG) => jmethod.visitInsn(Opcodes.LAND)
+        case (AND, INT)  => jmethod.visitInsn(Opcodes.IAND)
         case (AND, _)    =>
-          emit(Opcodes.IAND)
+          jmethod.visitInsn(Opcodes.IAND)
           if (kind != BOOL) { emitT2T(INT, kind) }
 
-        case (OR, LONG) => emit(Opcodes.LOR)
-        case (OR, INT)  => emit(Opcodes.IOR)
+        case (OR, LONG) => jmethod.visitInsn(Opcodes.LOR)
+        case (OR, INT)  => jmethod.visitInsn(Opcodes.IOR)
         case (OR, _) =>
-          emit(Opcodes.IOR)
+          jmethod.visitInsn(Opcodes.IOR)
           if (kind != BOOL) { emitT2T(INT, kind) }
 
-        case (XOR, LONG) => emit(Opcodes.LXOR)
-        case (XOR, INT)  => emit(Opcodes.IXOR)
+        case (XOR, LONG) => jmethod.visitInsn(Opcodes.LXOR)
+        case (XOR, INT)  => jmethod.visitInsn(Opcodes.IXOR)
         case (XOR, _) =>
-          emit(Opcodes.IXOR)
+          jmethod.visitInsn(Opcodes.IXOR)
           if (kind != BOOL) { emitT2T(INT, kind) }
       }
 
@@ -199,27 +155,27 @@ trait BCodeIdiomatic {
     /*
      * can-multi-thread
      */
-    final def genPrimitiveShift(op: /* ShiftOp */ Int, kind: BType): Unit = {
+    final def genPrimitiveShift(op: /* ShiftOp */ Int, kind: PrimitiveBType): Unit = {
 
       import ScalaPrimitivesOps.{ LSL, ASR, LSR }
 
       ((op, kind): @unchecked) match {
-        case (LSL, LONG) => emit(Opcodes.LSHL)
-        case (LSL, INT)  => emit(Opcodes.ISHL)
+        case (LSL, LONG) => jmethod.visitInsn(Opcodes.LSHL)
+        case (LSL, INT)  => jmethod.visitInsn(Opcodes.ISHL)
         case (LSL, _) =>
-          emit(Opcodes.ISHL)
+          jmethod.visitInsn(Opcodes.ISHL)
           emitT2T(INT, kind)
 
-        case (ASR, LONG) => emit(Opcodes.LSHR)
-        case (ASR, INT)  => emit(Opcodes.ISHR)
+        case (ASR, LONG) => jmethod.visitInsn(Opcodes.LSHR)
+        case (ASR, INT)  => jmethod.visitInsn(Opcodes.ISHR)
         case (ASR, _) =>
-          emit(Opcodes.ISHR)
+          jmethod.visitInsn(Opcodes.ISHR)
           emitT2T(INT, kind)
 
-        case (LSR, LONG) => emit(Opcodes.LUSHR)
-        case (LSR, INT)  => emit(Opcodes.IUSHR)
+        case (LSR, LONG) => jmethod.visitInsn(Opcodes.LUSHR)
+        case (LSR, INT)  => jmethod.visitInsn(Opcodes.IUSHR)
         case (LSR, _) =>
-          emit(Opcodes.IUSHR)
+          jmethod.visitInsn(Opcodes.IUSHR)
           emitT2T(INT, kind)
       }
 
@@ -297,7 +253,7 @@ trait BCodeIdiomatic {
      *
      * can-multi-thread
      */
-    final def emitT2T(from: BType, to: BType): Unit = {
+    final def emitT2T(from: PrimitiveBType, to: PrimitiveBType): Unit = {
 
       assert(
         from.isNonVoidPrimitiveType && to.isNonVoidPrimitiveType,
@@ -321,10 +277,7 @@ trait BCodeIdiomatic {
       // the only conversion involving BOOL that is allowed is (BOOL -> BOOL)
       assert(from != BOOL && to != BOOL, s"inconvertible types : $from -> $to")
 
-      // We're done with BOOL already
       from match {
-
-        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
 
         case BYTE  => pickOne(JCodeMethodN.fromByteT2T)
         case SHORT => pickOne(JCodeMethodN.fromShortT2T)
@@ -354,6 +307,9 @@ trait BCodeIdiomatic {
             case LONG    => emit(D2L)
             case _       => emit(D2I); emitT2T(INT, to)
           }
+
+        // We're done with BOOL already
+        case UNIT | BOOL => ??? // impossible
       }
     } // end of emitT2T()
 
@@ -411,7 +367,6 @@ trait BCodeIdiomatic {
         case _ =>
           assert(elem.isNonVoidPrimitiveType)
           val rand = {
-            // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
             elem match {
               case BOOL   => Opcodes.T_BOOLEAN
               case BYTE   => Opcodes.T_BYTE
@@ -435,35 +390,29 @@ trait BCodeIdiomatic {
     final def aload( tk: BType): Unit = { emitTypeBased(JCodeMethodN.aloadOpcodes,  tk) } // can-multi-thread
     final def astore(tk: BType): Unit = { emitTypeBased(JCodeMethodN.astoreOpcodes, tk) } // can-multi-thread
 
-    final def neg(tk: BType): Unit = { emitPrimitive(JCodeMethodN.negOpcodes, tk) } // can-multi-thread
-    final def add(tk: BType): Unit = { emitPrimitive(JCodeMethodN.addOpcodes, tk) } // can-multi-thread
-    final def sub(tk: BType): Unit = { emitPrimitive(JCodeMethodN.subOpcodes, tk) } // can-multi-thread
-    final def mul(tk: BType): Unit = { emitPrimitive(JCodeMethodN.mulOpcodes, tk) } // can-multi-thread
-    final def div(tk: BType): Unit = { emitPrimitive(JCodeMethodN.divOpcodes, tk) } // can-multi-thread
-    final def rem(tk: BType): Unit = { emitPrimitive(JCodeMethodN.remOpcodes, tk) } // can-multi-thread
+    final def neg(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.negOpcodes, tk) } // can-multi-thread
+    final def add(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.addOpcodes, tk) } // can-multi-thread
+    final def sub(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.subOpcodes, tk) } // can-multi-thread
+    final def mul(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.mulOpcodes, tk) } // can-multi-thread
+    final def div(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.divOpcodes, tk) } // can-multi-thread
+    final def rem(tk: PrimitiveBType): Unit = { emitPrimitive(JCodeMethodN.remOpcodes, tk) } // can-multi-thread
 
     // can-multi-thread
     final def invokespecial(owner: String, name: String, desc: String, itf: Boolean): Unit = {
-      emitInvoke(Opcodes.INVOKESPECIAL, owner, name, desc, itf)
+      jmethod.visitMethodInsn(Opcodes.INVOKESPECIAL, owner, name, desc, itf)
     }
     // can-multi-thread
     final def invokestatic(owner: String, name: String, desc: String, itf: Boolean): Unit = {
-      emitInvoke(Opcodes.INVOKESTATIC, owner, name, desc, itf)
+      jmethod.visitMethodInsn(Opcodes.INVOKESTATIC, owner, name, desc, itf)
     }
     // can-multi-thread
     final def invokeinterface(owner: String, name: String, desc: String): Unit = {
-      emitInvoke(Opcodes.INVOKEINTERFACE, owner, name, desc, itf = true)
+      jmethod.visitMethodInsn(Opcodes.INVOKEINTERFACE, owner, name, desc, true)
     }
     // can-multi-thread
     final def invokevirtual(owner: String, name: String, desc: String): Unit = {
-      emitInvoke(Opcodes.INVOKEVIRTUAL, owner, name, desc, itf = false)
+      jmethod.visitMethodInsn(Opcodes.INVOKEVIRTUAL, owner, name, desc, false)
     }
-
-    def emitInvoke(opcode: Int, owner: String, name: String, desc: String, itf: Boolean): Unit = {
-      val node = new MethodInsnNode(opcode, owner, name, desc, itf)
-      jmethod.instructions.add(node)
-    }
-
 
     // can-multi-thread
     final def goTo(label: asm.Label): Unit = { jmethod.visitJumpInsn(Opcodes.GOTO, label) }
@@ -601,9 +550,8 @@ trait BCodeIdiomatic {
     // ---------------- primitive operations ----------------
 
      // can-multi-thread
-    final def emitPrimitive(opcs: Array[Int], tk: BType): Unit = {
+    final def emitPrimitive(opcs: Array[Int], tk: PrimitiveBType): Unit = {
       val opc = {
-        // using `asm.Type.SHORT` instead of `BType.SHORT` because otherwise "warning: could not emit switch for @switch annotated match"
         tk match {
           case LONG   => opcs(1)
           case FLOAT  => opcs(2)
@@ -676,7 +624,7 @@ trait BCodeIdiomatic {
    *
    * can-multi-thread
    */
-  final def coercionFrom(code: Int): BType = {
+  final def coercionFrom(code: Int): PrimitiveBType = {
     import ScalaPrimitivesOps._
     (code: @switch) match {
       case B2B | B2C | B2S | B2I | B2L | B2F | B2D => BYTE
@@ -693,7 +641,7 @@ trait BCodeIdiomatic {
    *
    * can-multi-thread
    */
-  final def coercionTo(code: Int): BType = {
+  final def coercionTo(code: Int): PrimitiveBType = {
     import ScalaPrimitivesOps._
     (code: @switch) match {
       case B2B | C2B | S2B | I2B | L2B | F2B | D2B => BYTE

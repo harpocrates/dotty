@@ -116,10 +116,11 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
     /* Generate code for primitive arithmetic operations. */
     def genArithmeticOp(tree: Tree, code: Int): BType = tree match{
       case Apply(fun @ DesugaredSelect(larg, _), args) =>
-      var resKind = tpeTK(larg)
-
-      assert(resKind.isNumericType || (resKind == BOOL),
-             s"$resKind is not a numeric or boolean type [operation: ${fun.symbol}]")
+      var resKind = tpeTK(larg) match {
+        case primRes: PrimitiveBType if primRes != UNIT => primRes
+        case res =>
+          abort(s"$res is not a numeric or boolean type [operation: ${fun.symbol}]")
+      }
 
       import ScalaPrimitivesOps._
 
@@ -137,7 +138,7 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
         // binary operation
         case rarg :: Nil =>
           val isShift = isShiftOp(code)
-          resKind = tpeTK(larg).maxType(if (isShift) INT else tpeTK(rarg))
+          resKind = resKind.maxValueType(if (isShift) INT else tpeTK(rarg)).asInstanceOf[PrimitiveBType]
 
           if (isShift || isBitwiseOp(code)) {
             assert(resKind.isIntegralType || (resKind == BOOL),
@@ -431,7 +432,7 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
           if (value.tag != UnitTag) (value.tag, expectedType) match {
             case (IntTag,   LONG  ) => bc.lconst(value.longValue);       generatedType = LONG
             case (FloatTag, DOUBLE) => bc.dconst(value.doubleValue);     generatedType = DOUBLE
-            case (NullTag,  _     ) => bc.emit(asm.Opcodes.ACONST_NULL); generatedType = srNullRef
+            case (NullTag,  _     ) => emit(asm.Opcodes.ACONST_NULL); generatedType = srNullRef
             case _                  => genConstant(value);               generatedType = tpeTK(tree)
           }
 
@@ -668,28 +669,27 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
         val r = tpeTK(targs.head)
         genLoadQualifier(fun)
 
-        // TODO @lry make pattern match
-        if (l.isPrimitive && r.isPrimitive)
-          genConversion(l, r, cast)
-        else if (l.isPrimitive) {
-          bc drop l
-          if (cast) {
-            mnode.visitTypeInsn(asm.Opcodes.NEW, jlClassCastExceptionRef.internalName)
-            bc dup ObjectRef
-            emit(asm.Opcodes.ATHROW)
-          } else {
-            bc boolconst false
-          }
-        }
-        else if (r.isPrimitive && cast) {
-          abort(s"Erasure should have added an unboxing operation to prevent this cast. Tree: $t")
-        }
-        else if (r.isPrimitive) {
-          bc isInstance boxedClassOfPrimitive(r.asPrimitiveBType)
-        }
-        else {
-          assert(r.isRef, r) // ensure that it's not a method
-          genCast(r.asRefBType, cast)
+        (l, r) match {
+          case (lPrim: PrimitiveBType, rPrim: PrimitiveBType) =>
+            genConversion(lPrim, rPrim, cast)
+          case (lPrim: PrimitiveBType, _) =>
+            bc drop l
+            if (cast) {
+              mnode.visitTypeInsn(asm.Opcodes.NEW, jlClassCastExceptionRef.internalName)
+              bc dup ObjectRef
+              emit(asm.Opcodes.ATHROW)
+            } else {
+              bc boolconst false
+            }
+          case (_, rPrim: PrimitiveBType) =>
+            if (cast) {
+              abort(s"Erasure should have added an unboxing operation to prevent this cast. Tree: $t")
+            }
+            bc isInstance boxedClassOfPrimitive(r.asPrimitiveBType)
+
+          case _ =>
+            assert(r.isRef, r) // ensure that it's not a method
+            genCast(r.asRefBType, cast)
         }
 
         if (cast) r else BOOL
@@ -897,10 +897,10 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
          * On a second pass, we emit the switch blocks, one for each different target.
          */
 
-        var flatKeys: List[Int]       = Nil
-        var targets:  List[asm.Label] = Nil
-        var default:  asm.Label       = null
-        var switchBlocks: List[(asm.Label, Tree)] = Nil
+        val flatKeys = Array.newBuilder[Int]
+        val targets = Array.newBuilder[asm.Label]
+        var default: asm.Label = null
+        val switchBlocks = List.newBuilder[(asm.Label, Tree)]
 
         genLoad(selector, INT)
 
@@ -908,19 +908,19 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
         for (caze @ CaseDef(pat, guard, body) <- cases) {
           assert(guard == tpd.EmptyTree, guard)
           val switchBlockPoint = new asm.Label
-          switchBlocks ::= (switchBlockPoint, body)
+          switchBlocks += (switchBlockPoint -> body)
           pat match {
             case Literal(value) =>
-              flatKeys ::= value.intValue
-              targets  ::= switchBlockPoint
+              flatKeys += value.intValue
+              targets += switchBlockPoint
             case Ident(nme.WILDCARD) =>
               assert(default == null, s"multiple default targets in a Match node, at ${tree.span}")
               default = switchBlockPoint
             case Alternative(alts) =>
               alts foreach {
                 case Literal(value) =>
-                  flatKeys ::= value.intValue
-                  targets  ::= switchBlockPoint
+                  flatKeys += value.intValue
+                  targets += switchBlockPoint
                 case _ =>
                   abort(s"Invalid alternative in alternative pattern in Match node: $tree at: ${tree.span}")
               }
@@ -929,10 +929,10 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
           }
         }
 
-        bc.emitSWITCH(mkArrayReverse(flatKeys), mkArrayL(targets.reverse), default, MIN_SWITCH_DENSITY)
+        bc.emitSWITCH(flatKeys.result(), targets.result(), default, MIN_SWITCH_DENSITY)
 
         // emit switch-blocks.
-        for (sb <- switchBlocks.reverse) {
+        for (sb <- switchBlocks.result()) {
           val (caseLabel, caseBody) = sb
           markProgramPoint(caseLabel)
           genLoadTo(caseBody, generatedType, postMatchDest)
@@ -947,9 +947,8 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
          * This mirrors the way that Java compiles `switch` on Strings.
          */
 
-        var default:  asm.Label       = null
-        var indirectBlocks: List[(asm.Label, Tree)] = Nil
-
+        var default: asm.Label = null
+        val indirectBlocks = List.newBuilder[(asm.Label, Tree)]
 
         // Cases grouped by their hashCode
         val casesByHash = SortedMap.empty[Int, List[(String, Either[asm.Label, Tree])]]
@@ -967,11 +966,11 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
             case Ident(nme.WILDCARD) =>
               assert(default == null, s"multiple default targets in a Match node, at ${tree.span}")
               default = new asm.Label
-              indirectBlocks ::= (default, body)
+              indirectBlocks += (default -> body)
             case Alternative(alts) =>
               // We need an extra basic block since multiple strings can lead to this code
               val indirectCaseGroupLabel = new asm.Label
-              indirectBlocks ::= (indirectCaseGroupLabel, body)
+              indirectBlocks += (indirectCaseGroupLabel -> body)
               alts foreach {
                 case Literal(value) =>
                   val strValue = value.stringValue
@@ -989,14 +988,14 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
         }
 
         // Organize the hashCode options into switch cases
-        var flatKeys: List[Int]       = Nil
-        var targets:  List[asm.Label] = Nil
-        var hashBlocks: List[(asm.Label, List[(String, Either[asm.Label, Tree])])] = Nil
+        val flatKeys = Array.newBuilder[Int]
+        var targets = Array.newBuilder[asm.Label]
+        var hashBlocks = List.newBuilder[(asm.Label, List[(String, Either[asm.Label, Tree])])]
         for ((hashValue, hashCases) <- casesByHash) {
           val switchBlockPoint = new asm.Label
-          hashBlocks ::= (switchBlockPoint, hashCases)
-          flatKeys ::= hashValue
-          targets  ::= switchBlockPoint
+          hashBlocks += (switchBlockPoint -> hashCases)
+          flatKeys += hashValue
+          targets += switchBlockPoint
         }
 
         // Push the hashCode of the string (or `0` it is `null`) onto the stack and switch on it
@@ -1009,10 +1008,10 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
           INT,
           LoadDestination.FallThrough
         )
-        bc.emitSWITCH(mkArrayReverse(flatKeys), mkArrayL(targets.reverse), default, MIN_SWITCH_DENSITY)
+        bc.emitSWITCH(flatKeys.result(), targets.result(), default, MIN_SWITCH_DENSITY)
 
         // emit blocks for each hash case
-        for ((hashLabel, caseAlternatives) <- hashBlocks.reverse) {
+        for ((hashLabel, caseAlternatives) <- hashBlocks.result()) {
           markProgramPoint(hashLabel)
           for ((caseString, indirectLblOrBody) <- caseAlternatives) {
             val comparison = if (caseString == null) defn.Any_== else defn.Any_equals
@@ -1034,7 +1033,7 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
         }
 
         // emit blocks for common patterns
-        for ((caseLabel, caseBody) <- indirectBlocks.reverse) {
+        for ((caseLabel, caseBody) <- indirectBlocks.result()) {
           markProgramPoint(caseLabel)
           genLoadTo(caseBody, generatedType, postMatchDest)
         }
@@ -1068,11 +1067,17 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
       }
     end emitLocalVarScopes
 
-    def adapt(from: BType, to: BType): Unit = {
+    /** Adapt a return value from its type to the expected return type.
+      *
+      * @param from actual type of the returned value
+      * @param to desired return type
+      */
+    private def adapt(from: BType, to: BType): Unit = {
       if (!from.conformsTo(to)) {
-        to match {
-          case UNIT => bc drop from
-          case _    => bc.emitT2T(from, to)
+        (from, to) match {
+          case (_, UNIT) => bc.drop(from)
+          case (fromPrim: PrimitiveBType, toPrim: PrimitiveBType) => bc.emitT2T(fromPrim, toPrim)
+          case _ => abort(s"cannot adapt return from $from to $to")
         }
       } else if (from.isNothingType) {
         /* There are two possibilities for from.isNothingType: emitting a "throw e" expressions and
@@ -1197,7 +1202,7 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
       }
     }
 
-    def genConversion(from: BType, to: BType, cast: Boolean): Unit = {
+    def genConversion(from: PrimitiveBType, to: PrimitiveBType, cast: Boolean): Unit = {
       if (cast) { bc.emitT2T(from, to) }
       else {
         bc drop from
@@ -1401,7 +1406,7 @@ trait BCodeBodyBuilder extends BCodeSkelBuilder {
           case Special => Opcodes.INVOKESPECIAL
           case Virtual => if (isInterface) Opcodes.INVOKEINTERFACE else Opcodes.INVOKEVIRTUAL
         }
-        bc.emitInvoke(opc, receiverName, jname, mdescr, isInterface)
+        mnode.visitMethodInsn(opc, receiverName, jname, mdescr, isInterface)
       }
 
       bmType.returnType
