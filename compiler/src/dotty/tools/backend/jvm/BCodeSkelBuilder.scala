@@ -360,7 +360,7 @@ trait BCodeSkelBuilder extends BCodeHelpers {
     } // end of method addClassFields()
 
     // current method
-    var mnode: MethodNode1         = null
+    var mnode: asm.tree.MethodNode = null
     var jMethodName: String        = null
     var isMethSymStaticCtor        = false
     var returnType: BType          = null
@@ -644,7 +644,7 @@ trait BCodeSkelBuilder extends BCodeHelpers {
         mdesc,
         jgensig,
         mkArrayS(thrownExceptions)
-      ).asInstanceOf[MethodNode1]
+      ).asInstanceOf[asm.tree.MethodNode]
 
       // TODO param names: (m.params map (p => javaName(p.sym)))
 
