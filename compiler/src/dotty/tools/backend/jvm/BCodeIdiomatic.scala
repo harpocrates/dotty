@@ -425,9 +425,11 @@ trait BCodeIdiomatic {
 
     // can-multi-thread
     final def emitRETURN(tk: BType): Unit = {
-      if (tk == UNIT) { emit(Opcodes.RETURN) }
+      if (tk == UNIT) { emitUnitReturn() }
       else            { emitTypeBased(JCodeMethodN.returnOpcodes, tk)      }
     }
+
+    def emitUnitReturn(): Unit = emit(Opcodes.RETURN)
 
     /* Emits one of tableswitch or lookoupswitch.
      *
@@ -643,20 +645,6 @@ trait BCodeIdiomatic {
       case B2L | C2L | S2L | I2L | L2L | F2L | D2L => LONG
       case B2F | C2F | S2F | I2F | L2F | F2F | D2F => FLOAT
       case B2D | C2D | S2D | I2D | L2D | F2D | D2D => DOUBLE
-    }
-  }
-
-  implicit class InsnIterMethodNode(mnode: asm.tree.MethodNode) {
-    @`inline` final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit): Unit = { mnode.instructions.foreachInsn(f) }
-  }
-
-  implicit class InsnIterInsnList(lst: asm.tree.InsnList) {
-
-    @`inline` final def foreachInsn(f: (asm.tree.AbstractInsnNode) => Unit): Unit = {
-      val insnIter = lst.iterator()
-      while (insnIter.hasNext) {
-        f(insnIter.next())
-      }
     }
   }
 }

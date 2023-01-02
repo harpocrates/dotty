@@ -370,9 +370,34 @@ trait BCodeSkelBuilder extends BCodeHelpers {
     var shouldEmitCleanup          = false
     // line numbers
     var lastEmittedLineNr          = -1
+    // used for android parcelable
+    var emittedAndroidCreatorField = false
 
     object bc extends JCodeMethodN {
       override def jmethod = PlainSkelBuilder.this.mnode
+
+      /* Unit returns in the static constructor of `Parcelable` need to be patched up - see
+       * `JAndroidBuilder` and `fabricateStaticInitAndroid`
+       */
+      override def emitUnitReturn() = {
+        if (isMethSymStaticCtor && isCZParcelable) {
+          // add a static field ("CREATOR") to this class to cache android.os.Parcelable$Creator
+          if (!emittedAndroidCreatorField) {
+            addCreatorField(asm.Opcodes.ACC_STATIC | asm.Opcodes.ACC_FINAL, cnode)
+            emittedAndroidCreatorField = true
+          }
+          // INVOKESTATIC CREATOR(): android.os.Parcelable$Creator; -- TODO where does this Android method come from?
+          val callee = claszSymbol.companionModule.info.member(androidFieldName).symbol
+          val jowner = internalName(callee.owner)
+          val jname  = callee.javaSimpleName
+          val jtype  = asmMethodType(callee).descriptor
+          jmethod.visitMethodInsn(asm.Opcodes.INVOKESTATIC, jowner, jname, jtype, false)
+          // PUTSTATIC `thisName`.CREATOR;
+          val andrFieldDescr = classBTypeFromSymbol(AndroidCreatorClass).descriptor
+          jmethod.visitFieldInsn(asm.Opcodes.PUTSTATIC, thisName, "CREATOR", andrFieldDescr)
+        }
+        super.emitUnitReturn()
+      }
     }
 
     /* ---------------- Part 1 of program points, ie Labels in the ASM world ---------------- */
@@ -825,8 +850,6 @@ trait BCodeSkelBuilder extends BCodeHelpers {
             }
             for (p <- params) { emitLocalVarScope(p.symbol, veryFirstProgramPoint, onePastLastProgramPoint, force = true) }
           }
-
-          if (isMethSymStaticCtor) { appendToStaticCtor(dd) }
         } // end of emitNormalMethodBody()
 
         lineNumber(rhs)
@@ -841,58 +864,6 @@ trait BCodeSkelBuilder extends BCodeHelpers {
 
       mnode = null
     } // end of method genDefDef()
-
-    /*
-     *  must-single-thread
-     *
-     *  TODO document, explain interplay with `fabricateStaticInitAndroid()`
-     */
-    private def appendToStaticCtor(dd: DefDef): Unit = {
-
-      def insertBefore(
-            location: asm.tree.AbstractInsnNode,
-            i0: asm.tree.AbstractInsnNode,
-            i1: asm.tree.AbstractInsnNode): Unit = {
-        if (i0 != null) {
-          mnode.instructions.insertBefore(location, i0.clone(null))
-          mnode.instructions.insertBefore(location, i1.clone(null))
-        }
-      }
-
-      // collect all return instructions
-      var rets: List[asm.tree.AbstractInsnNode] = Nil
-      mnode foreachInsn { i => if (i.getOpcode() == asm.Opcodes.RETURN) { rets ::= i  } }
-      if (rets.isEmpty) { return }
-
-      var insnParcA: asm.tree.AbstractInsnNode = null
-      var insnParcB: asm.tree.AbstractInsnNode = null
-      // android creator code
-      if (isCZParcelable) {
-        // add a static field ("CREATOR") to this class to cache android.os.Parcelable$Creator
-        val andrFieldDescr = classBTypeFromSymbol(AndroidCreatorClass).descriptor
-        cnode.visitField(
-          asm.Opcodes.ACC_STATIC | asm.Opcodes.ACC_FINAL,
-          "CREATOR",
-          andrFieldDescr,
-          null,
-          null
-        )
-        // INVOKESTATIC CREATOR(): android.os.Parcelable$Creator; -- TODO where does this Android method come from?
-        val callee = claszSymbol.companionModule.info.member(androidFieldName).symbol
-        val jowner = internalName(callee.owner)
-        val jname  = callee.javaSimpleName
-        val jtype  = asmMethodType(callee).descriptor
-        insnParcA  = new asm.tree.MethodInsnNode(asm.Opcodes.INVOKESTATIC, jowner, jname, jtype, false)
-        // PUTSTATIC `thisName`.CREATOR;
-        insnParcB  = new asm.tree.FieldInsnNode(asm.Opcodes.PUTSTATIC, thisName, "CREATOR", andrFieldDescr)
-      }
-
-      // insert a few instructions for initialization before each return instruction
-      for(r <- rets) {
-        insertBefore(r, insnParcA, insnParcB)
-      }
-
-    }
 
     def emitLocalVarScope(sym: Symbol, start: asm.Label, end: asm.Label, force: Boolean = false): Unit = {
       val Local(tk, name, idx, isSynth) = locals(sym)

@@ -727,6 +727,18 @@ trait BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
       (AndroidParcelableInterface != NoSymbol) &&
       (sym.info.parents.map(_.typeSymbol) contains AndroidParcelableInterface)
 
+    // add a static field ("CREATOR") to this class to cache android.os.Parcelable$Creator
+    def addCreatorField(flags: Int, cnode: asm.tree.ClassNode): Unit = {
+      val andrFieldDescr = classBTypeFromSymbol(AndroidCreatorClass).descriptor
+      cnode.visitField(
+        flags,
+        "CREATOR",
+        andrFieldDescr,
+        null, // no java-generic-signature
+        null  // no initial value
+      ).visitEnd()
+    }
+
     /*
      * must-single-thread
      */
@@ -734,13 +746,7 @@ trait BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
       val androidCreatorType = getClassBType(AndroidCreatorClass)
       val tdesc_creator = androidCreatorType.descriptor
 
-      cnode.visitField(
-        GenBCodeOps.PublicStaticFinal,
-        "CREATOR",
-        tdesc_creator,
-        null, // no java-generic-signature
-        null  // no initial value
-      ).visitEnd()
+      addCreatorField(GenBCodeOps.PublicStaticFinal, cnode)
 
       val moduleName = (thisName + "$")
 
@@ -770,6 +776,8 @@ trait BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
         tdesc_creator
       )
     }
+
+
 
   } // end of trait JAndroidBuilder
 
