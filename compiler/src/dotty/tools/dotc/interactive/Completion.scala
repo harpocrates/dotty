@@ -48,6 +48,9 @@ case class Completion(label: String, description: String, symbols: List[Symbol])
 
 object Completion:
 
+  def myLog(s: String): Unit =
+    java.nio.file.Files.writeString(java.nio.file.Path.of("/Users/alec/Code/scala3/hacky.log"), s + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)
+
   /** Get possible completions from tree at `pos`
    *
    *  @return offset and list of symbols for possible completions
@@ -140,6 +143,7 @@ object Completion:
 
       // Foo.`se<TAB> will result in Select(Ident(Foo), <error>)
       case (select: untpd.Select) :: _ if select.name == nme.ERROR =>
+        // println(s"Foo.`se<TAB> : ${select}")
         checkBacktickPrefix(select.source.content(), select.nameSpan.start, select.span.end)
 
       // import scala.util.chaining.`s<TAB> will result in a Ident(<error>)
@@ -147,9 +151,12 @@ object Completion:
         checkBacktickPrefix(ident.source.content(), ident.span.start, ident.span.end)
 
       case (tree: untpd.RefTree) :: _ if tree.name != nme.ERROR =>
+        // println(s"tree: untpd.RefTree : ${tree}")
         tree.name.toString.take(pos.span.point - tree.span.point)
 
-      case _ => naiveCompletionPrefix(pos.source.content().mkString, pos.point)
+      case _ =>
+        // println(s"naiveCompletionPrefix")
+        naiveCompletionPrefix(pos.source.content().mkString, pos.point)
 
 
   end completionPrefix
@@ -209,6 +216,8 @@ object Completion:
     untpdPath: List[untpd.Tree],
     matches: Option[Name => Boolean]
   )(using Context): CompletionMap =
+    myLog(s"computeCompletions($pos, $mode, $rawPrefix, ...)")
+
     val hasBackTick = rawPrefix.headOption.contains('`')
     val prefix = if hasBackTick then rawPrefix.drop(1) else rawPrefix
     val matches0 = matches.getOrElse(_.startsWith(prefix))

@@ -242,12 +242,17 @@ class CompletionProvider(
         "{" + newText + "}"
       else newText
 
+    def myLog(s: String): Unit =
+      java.nio.file.Files.writeString(java.nio.file.Path.of("/Users/alec/Code/scala3/hacky.log"), s + "\n", java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND)
+
+
     def mkItem(
         newText: String,
         additionalEdits: List[TextEdit] = Nil,
         range: Option[LspRange] = None
     ): CompletionItem =
       val oldText = params.text().nn.substring(completionPos.queryStart, completionPos.identEnd)
+      myLog(s"mkItem(newText = |$newText|, oldText = |${oldText}|)")
       val editRange = if newText.startsWith(oldText) then completionPos.stripSuffixEditRange
         else completionPos.toEditRange
 
